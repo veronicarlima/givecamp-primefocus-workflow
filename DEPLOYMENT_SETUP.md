@@ -46,31 +46,9 @@ gcloud artifacts repositories add-iam-policy-binding YOUR_ARTIFACT_REGISTRY \
   --role="roles/artifactregistry.reader"
 ```
 
-### 3. Set up Workload Identity Federation (Recommended)
+### 3. Create Service Account and Key
 
-This is the most secure method for GitHub Actions to authenticate with Google Cloud.
-
-#### 3a. Create Workload Identity Pool
-
-```bash
-gcloud iam workload-identity-pools create github-pool \
-  --project=YOUR_PROJECT_ID \
-  --location=global \
-  --display-name="GitHub Pool"
-```
-
-#### 3b. Create Workload Identity Provider
-
-```bash
-gcloud iam workload-identity-pools providers create github-provider \
-  --project=YOUR_PROJECT_ID \
-  --location=global \
-  --workload-identity-pool=github-pool \
-  --display-name="GitHub Provider" \
-  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository"
-```
-
-#### 3c. Create Service Account for Deployments
+#### 3a. Create Service Account for Deployments
 
 ```bash
 gcloud iam service-accounts create github-deploy-sa \
@@ -78,7 +56,7 @@ gcloud iam service-accounts create github-deploy-sa \
   --project=YOUR_PROJECT_ID
 ```
 
-#### 3d. Grant Permissions to Service Account
+#### 3b. Grant Permissions to Service Account
 
 ```bash
 # Grant permissions to deploy to Cloud Run
@@ -92,27 +70,14 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
   --role="roles/artifactregistry.writer"
 ```
 
-#### 3e. Configure Workload Identity Federation
+#### 3c. Create Service Account Key
 
 ```bash
-# Get the pool and provider IDs
-POOL_ID=$(gcloud iam workload-identity-pools describe github-pool \
-  --project=YOUR_PROJECT_ID \
-  --location=global \
-  --format="value(name)")
-
-PROVIDER_ID=$(gcloud iam workload-identity-pools providers describe github-provider \
-  --project=YOUR_PROJECT_ID \
-  --location=global \
-  --workload-identity-pool=github-pool \
-  --format="value(name)")
-
-# Configure the service account with the pool
-gcloud iam service-accounts add-iam-policy-binding github-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com \
-  --project=YOUR_PROJECT_ID \
-  --role="roles/iam.workloadIdentityUser" \
-  --member="principalSet://iam.googleapis.com/${POOL_ID}/attribute.repository/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME"
+gcloud iam service-accounts keys create github-deploy-key.json \
+  --iam-account=github-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com
 ```
+
+**Important**: Keep this key file secure and never commit it to your repository!
 
 ## GitHub Secrets Configuration
 
@@ -120,38 +85,23 @@ Add the following secrets to your GitHub repository (Settings → Secrets and va
 
 | Secret Name | Description | Example |
 |-------------|-------------|---------|
-| `GCP_PROJECT_ID` | Your Google Cloud Project ID | `my-project-12345` |
-| `GCP_REGION` | Google Cloud region | `us-central1` |
+| `GCP_PROJECT_ID` | Your Google Cloud Project ID | `prime-focus-services` |
+| `GCP_REGION` | Google Cloud region | `us-east5` |
 | `GCP_SERVICE_NAME` | Cloud Run service name | `primefocus-workflow` |
-| `GCP_ARTIFACT_REGISTRY` | Artifact Registry repository name | `primefocus-workflow` |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | Full Workload Identity Provider resource name | `projects/123456789/locations/global/workloadIdentityPools/github-pool/providers/github-provider` |
-| `GCP_SERVICE_ACCOUNT_EMAIL` | Service account email | `github-deploy-sa@my-project-12345.iam.gserviceaccount.com` |
+| `GCP_ARTIFACT_REGISTRY` | Artifact Registry repository name | `docker` |
+| `GCP_SA_KEY` | Service account key JSON content | Contents of `github-deploy-key.json` |
 
-### Getting the Workload Identity Provider Name
+### Adding the Service Account Key
 
-```bash
-echo "projects/$(gcloud projects describe YOUR_PROJECT_ID --format='value(projectNumber)')/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-```
+1. Open the `github-deploy-key.json` file you created earlier
+2. Copy the entire contents of the file
+3. In your GitHub repository, go to Settings → Secrets and variables → Actions
+4. Click "New repository secret"
+5. Name it `GCP_SA_KEY`
+6. Paste the entire contents of the JSON file
+7. Click "Add secret"
 
-## Alternative: Service Account Key (Less Secure)
 
-If you prefer not to use Workload Identity Federation, you can use a service account key:
-
-1. Create a service account key:
-```bash
-gcloud iam service-accounts keys create key.json \
-  --iam-account=github-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com
-```
-
-2. Add the key content as a GitHub secret named `GCP_SA_KEY`
-
-3. Modify the workflow to use the key instead of Workload Identity Federation:
-```yaml
-- name: Authenticate to Google Cloud
-  uses: google-github-actions/auth@v2
-  with:
-    credentials_json: ${{ secrets.GCP_SA_KEY }}
-```
 
 ## React Frontend Setup
 
